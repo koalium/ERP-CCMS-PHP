@@ -1,0 +1,80 @@
+<?php
+/**
+ * فوتر مشترک سیستم
+ */
+?>
+<style>
+    .main-footer {
+        background: #2c3e50;
+        color: white;
+        padding: 20px 0;
+        margin-top: 40px;
+        text-align: center;
+    }
+    
+    .footer-content {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 20px;
+    }
+    
+    .footer-content p {
+        margin: 5px 0;
+        font-size: 14px;
+    }
+    
+    .footer-links {
+        margin-top: 15px;
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        flex-wrap: wrap;
+    }
+    
+    .footer-link {
+        color: #ecf0f1;
+        text-decoration: none;
+        font-size: 13px;
+        transition: color 0.3s;
+    }
+    
+    .footer-link:hover {
+        color: #3498db;
+    }
+    
+    .copyright {
+        margin-top: 15px;
+        padding-top: 15px;
+        border-top: 1px solid rgba(255,255,255,0.1);
+        font-size: 12px;
+        color: #bdc3c7;
+    }
+</style>
+
+<footer class="main-footer">
+    <div class="footer-content">
+        <p><strong>سیستم یکپارچه مدیریت سازمان - eSmartis ERP</strong></p>
+        <p>راهکاری جامع برای مدیریت منابع سازمانی</p>
+        
+        <div class="footer-links">
+            <?php if (isset($_SESSION['user_id'])): ?>
+                <a href="<?php echo SITE_URL; ?>/dashboard.php" class="footer-link">داشبورد</a>
+                <a href="<?php echo SITE_URL; ?>/notes.php" class="footer-link">یادداشت‌ها</a>
+                <a href="<?php echo SITE_URL; ?>/calendar.php" class="footer-link">تقویم</a>
+                <a href="<?php echo SITE_URL; ?>/messenger.php" class="footer-link">پیام‌رسان</a>
+            <?php endif; ?>
+        </div>
+        
+        <div class="copyright">
+            <p>طراحی و توسعه توسط: <strong>Ashkarian.r</strong></p>
+            <p>© <?php echo en2fa(date('Y')); ?> eSmartis. تمامی حقوق محفوظ است.</p>
+            <p style="margin-top: 10px; font-size: 11px;">
+                نسخه <?php echo en2fa('1.0.0'); ?> | 
+                آخرین به‌روزرسانی: <?php echo en2fa(date('Y/m/d')); ?>
+            </p>
+        </div>
+    </div>
+</footer>
+
+</body>
+</html>

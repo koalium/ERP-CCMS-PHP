@@ -1,0 +1,20 @@
+<?php
+/**
+ * صفحه اصلی سیستم - Index
+ */
+
+require_once 'config.php';
+require_once 'dbc.php';
+
+// اگر کاربر وارد شده است، به داشبورد هدایت می‌شود
+if (isset($_SESSION['user_id'])) {
+    if ($_SESSION['is_admin']) {
+        redirect(SITE_URL . '/admin.php');
+    } else {
+        redirect(SITE_URL . '/dashboard.php');
+    }
+}
+
+// اگر وارد نشده است، به صفحه ورود هدایت می‌شود
+redirect(SITE_URL . '/sign.php');
+?>

@@ -1,0 +1,421 @@
+<?php
+/**
+ * لیست محصولات
+ */
+
+require_once 'config.php';
+require_once 'dbc.php';
+require_once 'header.php';
+
+check_login();
+
+if (!check_permission('engineering', PERMISSION_READ)) {
+    die('شما مجوز دسترسی ندارید.');
+}
+
+$status = $_GET['status'] ?? '';
+$search = sanitize_input($_GET['search'] ?? '');
+$page = max(1, (int)($_GET['page'] ?? 1));
+$perPage = 20;
+
+$sql = "SELECT p.*, 
+        p2.name as parent_name,
+        u.fullname as created_by_name,
+        (SELECT COUNT(*) FROM bom WHERE product_id = p.id) as parts_count
+        FROM products p
+        LEFT JOIN products p2 ON p2.id = p.parent_product_id
+        LEFT JOIN users u ON u.id = p.created_by
+        WHERE 1=1";
+$params = [];
+
+if ($status) {
+    $sql .= " AND p.status = :status";
+    $params[':status'] = $status;
+}
+
+if ($search) {
+    $sql .= " AND (p.code LIKE :search OR p.name LIKE :search OR p.type LIKE :search)";
+    $params[':search'] = '%' . $search . '%';
+}
+
+$sql .= " ORDER BY p.created_at DESC";
+
+$result = db()->paginate($sql, $params, $page, $perPage);
+$products = $result['data'];
+$totalPages = $result['total_pages'];
+?>
+
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>محصولات - <?php echo SITE_TITLE; ?></title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Tahoma, 'Iranian Sans', Arial, sans-serif;
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            min-height: 100vh;
+            direction: rtl;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 15px 50px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+        }
+        
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .header h1 {
+            color: #2c3e50;
+            font-size: 32px;
+        }
+        
+        .btn {
+            padding: 14px 28px;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.3s;
+            font-family: Tahoma, Arial, sans-serif;
+            font-weight: bold;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(250, 112, 154, 0.5);
+        }
+        
+        .filters {
+            background: white;
+            padding: 25px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            margin-bottom: 30px;
+        }
+        
+        .filter-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-tab {
+            padding: 12px 24px;
+            background: #f5f5f5;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+            text-decoration: none;
+            color: #333;
+        }
+        
+        .filter-tab.active {
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            color: white;
+            font-weight: bold;
+        }
+        
+        .products-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 25px;
+        }
+        
+        .product-card {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            transition: all 0.3s;
+            border-top: 6px solid;
+        }
+        
+        .product-card.development {
+            border-top-color: #ff9800;
+        }
+        
+        .product-card.active {
+            border-top-color: #4caf50;
+        }
+        
+        .product-card.obsolete {
+            border-top-color: #9e9e9e;
+        }
+        
+        .product-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 15px 50px rgba(0,0,0,0.2);
+        }
+        
+        .product-code {
+            color: #999;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+        
+        .product-name {
+            font-size: 20px;
+            color: #2c3e50;
+            margin-bottom: 12px;
+            font-weight: bold;
+        }
+        
+        .product-meta {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+        
+        .badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .badge-status {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        
+        .badge-parts {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+        
+        .product-actions {
+            display: flex;
+            gap: 10px;
+            padding-top: 15px;
+            border-top: 2px solid #f0f0f0;
+        }
+        
+        .btn-sm {
+            flex: 1;
+            padding: 10px;
+            font-size: 14px;
+            border-radius: 10px;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.2s;
+            border: none;
+            cursor: pointer;
+        }
+        
+        .btn-view {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .btn-edit {
+            background: #2196f3;
+            color: white;
+        }
+        
+        .btn-sm:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(0,0,0,0.2);
+        }
+        
+        .no-data {
+            background: white;
+            padding: 80px 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            text-align: center;
+            color: #999;
+            grid-column: 1 / -1;
+        }
+        
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 30px;
+        }
+        
+        .page-link {
+            padding: 10px 18px;
+            border: 2px solid #fa709a;
+            border-radius: 10px;
+            color: #fa709a;
+            text-decoration: none;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+        
+        .page-link:hover,
+        .page-link.active {
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            color: white;
+        }
+        
+        @media (max-width: 768px) {
+            .products-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-top">
+                <h1>🔧 محصولات</h1>
+                <?php if (check_permission('engineering', PERMISSION_WRITE)): ?>
+                    <a href="product.php?action=add" class="btn btn-primary">
+                        ➕ محصول جدید
+                    </a>
+                <?php endif; ?>
+            </div>
+        </div>
+        
+        <div class="filters">
+            <div class="filter-tabs">
+                <a href="?" class="filter-tab <?php echo !$status ? 'active' : ''; ?>">همه محصولات</a>
+                <a href="?status=development" class="filter-tab <?php echo $status === 'development' ? 'active' : ''; ?>">🔨 در حال توسعه</a>
+                <a href="?status=active" class="filter-tab <?php echo $status === 'active' ? 'active' : ''; ?>">✅ فعال</a>
+                <a href="?status=obsolete" class="filter-tab <?php echo $status === 'obsolete' ? 'active' : ''; ?>">📦 منسوخ شده</a>
+            </div>
+            
+            <form method="GET" style="display: flex; gap: 12px;">
+                <input type="hidden" name="status" value="<?php echo h($status); ?>">
+                <input type="text" name="search" placeholder="جستجو در کد، نام، نوع..." 
+                       value="<?php echo h($search); ?>"
+                       style="flex: 1; padding: 14px; border: 2px solid #e0e0e0; border-radius: 12px;">
+                <button type="submit" class="btn btn-primary">🔍 جستجو</button>
+            </form>
+        </div>
+        
+        <div class="products-grid">
+            <?php if (count($products) > 0): ?>
+                <?php foreach ($products as $product): ?>
+                    <div class="product-card <?php echo $product['status']; ?>">
+                        <div class="product-code">کد: <?php echo h($product['code']); ?></div>
+                        <h3 class="product-name"><?php echo h($product['name']); ?></h3>
+                        
+                        <div class="product-meta">
+                            <span class="badge badge-status">
+                                <?php 
+                                $statuses = [
+                                    'development' => '🔨 در حال توسعه',
+                                    'active' => '✅ فعال',
+                                    'obsolete' => '📦 منسوخ'
+                                ];
+                                echo $statuses[$product['status']] ?? $product['status'];
+                                ?>
+                            </span>
+                            
+                            <?php if ($product['type']): ?>
+                                <span class="badge badge-status">
+                                    📂 <?php echo h($product['type']); ?>
+                                </span>
+                            <?php endif; ?>
+                            
+                            <span class="badge badge-parts">
+                                🔩 <?php echo en2fa($product['parts_count']); ?> قطعه
+                            </span>
+                            
+                            <?php if ($product['version']): ?>
+                                <span class="badge badge-status">
+                                    📌 نسخه <?php echo h($product['version']); ?>
+                                </span>
+                            <?php endif; ?>
+                        </div>
+                        
+                        <?php if ($product['parent_name']): ?>
+                            <div style="color: #666; font-size: 14px; margin-bottom: 10px;">
+                                📦 زیرمحصول: <?php echo h($product['parent_name']); ?>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <?php if ($product['description']): ?>
+                            <p style="color: #666; font-size: 14px; margin-top: 10px;">
+                                <?php echo h(mb_substr($product['description'], 0, 80)) . (mb_strlen($product['description']) > 80 ? '...' : ''); ?>
+                            </p>
+                        <?php endif; ?>
+                        
+                        <div class="product-actions">
+                            <a href="product.php?action=view&id=<?php echo $product['id']; ?>" 
+                               class="btn-sm btn-view">👁 مشاهده</a>
+                            
+                            <?php if (check_permission('engineering', PERMISSION_WRITE)): ?>
+                                <a href="product.php?action=edit&id=<?php echo $product['id']; ?>" 
+                                   class="btn-sm btn-edit">✏️ ویرایش</a>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+                
+                <?php if ($totalPages > 1): ?>
+                    <div class="pagination" style="grid-column: 1 / -1;">
+                        <?php if ($page > 1): ?>
+                            <a href="?page=<?php echo $page - 1; ?>&status=<?php echo urlencode($status); ?>&search=<?php echo urlencode($search); ?>" 
+                               class="page-link">قبلی</a>
+                        <?php endif; ?>
+                        
+                        <?php for ($i = max(1, $page - 2); $i <= min($totalPages, $page + 2); $i++): ?>
+                            <a href="?page=<?php echo $i; ?>&status=<?php echo urlencode($status); ?>&search=<?php echo urlencode($search); ?>" 
+                               class="page-link <?php echo $i === $page ? 'active' : ''; ?>">
+                                <?php echo en2fa($i); ?>
+                            </a>
+                        <?php endfor; ?>
+                        
+                        <?php if ($page < $totalPages): ?>
+                            <a href="?page=<?php echo $page + 1; ?>&status=<?php echo urlencode($status); ?>&search=<?php echo urlencode($search); ?>" 
+                               class="page-link">بعدی</a>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
+            <?php else: ?>
+                <div class="no-data">
+                    <div style="font-size: 80px; margin-bottom: 25px;">🔧</div>
+                    <h3>هیچ محصولی یافت نشد</h3>
+                    <p>برای افزودن محصول جدید از دکمه بالا استفاده کنید</p>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</body>
+</html>
+
+<?php require_once 'footer.php'; ?>

@@ -1,0 +1,420 @@
+<?php
+/**
+ * داشبورد کاربری
+ */
+
+require_once 'config.php';
+require_once 'dbc.php';
+require_once 'header.php';
+
+check_login();
+
+$userId = $_SESSION['user_id'];
+$userName = $_SESSION['fullname'];
+
+// آمار کلی کاربر
+$myNotes = db()->count('notes', 'user_id = :user_id', [':user_id' => $userId]);
+
+$myTasks = db()->count(
+    'tasks', 
+    'assigned_to = :user_id AND status NOT IN (\'done\', \'cancelled\')', 
+    [':user_id' => $userId]
+);
+
+$myProjects = db()->count(
+    'projects',
+    'manager_user_id = :user_id AND status NOT IN (\'completed\', \'cancelled\')',
+    [':user_id' => $userId]
+);
+
+$myContracts = db()->count(
+    'contracts',
+    'created_by = :user_id AND status = \'active\'',
+    [':user_id' => $userId]
+);
+
+// آخرین یادداشت‌ها
+$recentNotes = db()->select(
+    "SELECT * FROM notes 
+     WHERE user_id = :user_id 
+     ORDER BY updated_at DESC 
+     LIMIT 5",
+    [':user_id' => $userId]
+);
+
+// رویدادهای امروز و آینده نزدیک
+$today = date('Y-m-d');
+$upcomingEvents = db()->select(
+    "SELECT * FROM calendar_events 
+     WHERE user_id = :user_id AND start_date >= :today 
+     ORDER BY start_date, start_time 
+     LIMIT 5",
+    [':user_id' => $userId, ':today' => $today]
+);
+
+// یادآورهای امروز
+$reminders = db()->select(
+    "SELECT * FROM reminders 
+     WHERE user_id = :user_id AND remind_date = :today AND is_sent = 0
+     ORDER BY remind_time",
+    [':user_id' => $userId, ':today' => $today]
+);
+
+// پیام‌های خوانده نشده
+$unreadMessages = db()->count(
+    'messages',
+    'receiver_id = :user_id AND is_read = 0',
+    [':user_id' => $userId]
+);
+
+?>
+
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>داشبورد - <?php echo SITE_TITLE; ?></title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Tahoma, 'Iranian Sans', Arial, sans-serif;
+            background: #f5f7fa;
+            direction: rtl;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .welcome {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .welcome h1 {
+            color: #2c3e50;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .welcome p {
+            color: #666;
+            font-size: 16px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            transition: all 0.3s;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+        }
+        
+        .stat-icon {
+            font-size: 48px;
+            width: 80px;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+        }
+        
+        .stat-icon.notes { background: #e3f2fd; }
+        .stat-icon.tasks { background: #fff3e0; }
+        .stat-icon.projects { background: #f3e5f5; }
+        .stat-icon.contracts { background: #e8f5e9; }
+        .stat-icon.messages { background: #fce4ec; }
+        
+        .stat-content h3 {
+            font-size: 36px;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        
+        .stat-content p {
+            color: #666;
+            font-size: 15px;
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+        
+        .widget {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        
+        .widget-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        
+        .widget-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .widget-link {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 13px;
+            transition: color 0.3s;
+        }
+        
+        .widget-link:hover {
+            color: #764ba2;
+        }
+        
+        .widget-list {
+            list-style: none;
+        }
+        
+        .widget-item {
+            padding: 15px;
+            border-bottom: 1px solid #f0f0f0;
+            transition: background 0.2s;
+            cursor: pointer;
+        }
+        
+        .widget-item:last-child {
+            border-bottom: none;
+        }
+        
+        .widget-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .item-title {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        
+        .item-meta {
+            font-size: 12px;
+            color: #999;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+        
+        .empty-state p {
+            font-size: 14px;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        .badge-today { background: #ffe4e1; color: #d32f2f; }
+        .badge-upcoming { background: #e3f2fd; color: #1976d2; }
+        
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="welcome">
+            <h1>👋 سلام، <?php echo h($userName); ?>!</h1>
+            <p>امروز <?php echo en2fa(date('l، d F Y')); ?></p>
+        </div>
+        
+        <div class="stats-grid">
+            <a href="notes.php" class="stat-card">
+                <div class="stat-icon notes">📝</div>
+                <div class="stat-content">
+                    <h3><?php echo en2fa($myNotes); ?></h3>
+                    <p>یادداشت‌های من</p>
+                </div>
+            </a>
+            
+            <a href="tasks.php" class="stat-card">
+                <div class="stat-icon tasks">📋</div>
+                <div class="stat-content">
+                    <h3><?php echo en2fa($myTasks); ?></h3>
+                    <p>وظایف فعال</p>
+                </div>
+            </a>
+            
+            <a href="projects.php" class="stat-card">
+                <div class="stat-icon projects">📊</div>
+                <div class="stat-content">
+                    <h3><?php echo en2fa($myProjects); ?></h3>
+                    <p>پروژه‌های من</p>
+                </div>
+            </a>
+            
+            <a href="contracts.php" class="stat-card">
+                <div class="stat-icon contracts">📄</div>
+                <div class="stat-content">
+                    <h3><?php echo en2fa($myContracts); ?></h3>
+                    <p>قراردادهای فعال</p>
+                </div>
+            </a>
+            
+            <?php if ($unreadMessages > 0): ?>
+                <a href="messenger.php" class="stat-card">
+                    <div class="stat-icon messages">💬</div>
+                    <div class="stat-content">
+                        <h3><?php echo en2fa($unreadMessages); ?></h3>
+                        <p>پیام‌های خوانده نشده</p>
+                    </div>
+                </a>
+            <?php endif; ?>
+        </div>
+        
+        <div class="dashboard-grid">
+            <!-- یادداشت‌های اخیر -->
+            <div class="widget">
+                <div class="widget-header">
+                    <div class="widget-title">📝 آخرین یادداشت‌ها</div>
+                    <a href="notes.php" class="widget-link">مشاهده همه ←</a>
+                </div>
+                
+                <?php if (count($recentNotes) > 0): ?>
+                    <ul class="widget-list">
+                        <?php foreach ($recentNotes as $note): ?>
+                            <li class="widget-item" onclick="window.location='note.php?action=view&id=<?php echo $note['id']; ?>'">
+                                <div class="item-title"><?php echo h($note['title']); ?></div>
+                                <div class="item-meta">
+                                    <?php echo en2fa(date('Y/m/d H:i', strtotime($note['updated_at']))); ?>
+                                    <?php if ($note['category']): ?>
+                                        • <?php echo h($note['category']); ?>
+                                    <?php endif; ?>
+                                </div>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php else: ?>
+                    <div class="empty-state">
+                        📝
+                        <p>هیچ یادداشتی ندارید</p>
+                    </div>
+                <?php endif; ?>
+            </div>
+            
+            <!-- رویدادهای آینده -->
+            <div class="widget">
+                <div class="widget-header">
+                    <div class="widget-title">📅 رویدادهای آینده</div>
+                    <a href="calendar.php" class="widget-link">مشاهده تقویم ←</a>
+                </div>
+                
+                <?php if (count($upcomingEvents) > 0): ?>
+                    <ul class="widget-list">
+                        <?php foreach ($upcomingEvents as $event): ?>
+                            <li class="widget-item">
+                                <?php if ($event['start_date'] === $today): ?>
+                                    <span class="badge badge-today">امروز</span>
+                                <?php else: ?>
+                                    <span class="badge badge-upcoming"><?php echo en2fa($event['start_date']); ?></span>
+                                <?php endif; ?>
+                                <div class="item-title"><?php echo h($event['title']); ?></div>
+                                <?php if ($event['start_time']): ?>
+                                    <div class="item-meta">
+                                        ⏰ <?php echo en2fa($event['start_time']); ?>
+                                        <?php if ($event['location']): ?>
+                                            • 📍 <?php echo h($event['location']); ?>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endif; ?>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php else: ?>
+                    <div class="empty-state">
+                        📅
+                        <p>رویداد آینده‌ای ندارید</p>
+                    </div>
+                <?php endif; ?>
+            </div>
+            
+            <!-- یادآورهای امروز -->
+            <?php if (count($reminders) > 0): ?>
+                <div class="widget">
+                    <div class="widget-header">
+                        <div class="widget-title">🔔 یادآورهای امروز</div>
+                        <a href="reminders.php" class="widget-link">مشاهده همه ←</a>
+                    </div>
+                    
+                    <ul class="widget-list">
+                        <?php foreach ($reminders as $reminder): ?>
+                            <li class="widget-item">
+                                <div class="item-title">🔔 <?php echo h($reminder['title']); ?></div>
+                                <div class="item-meta">
+                                    ⏰ <?php echo en2fa($reminder['remind_time']); ?>
+                                    <?php if ($reminder['description']): ?>
+                                        <br><?php echo h($reminder['description']); ?>
+                                    <?php endif; ?>
+                                </div>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</body>
+</html>
+
+<?php require_once 'footer.php'; ?>

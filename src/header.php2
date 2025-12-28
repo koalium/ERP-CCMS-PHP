@@ -1,0 +1,570 @@
+<?php
+/**
+ * هدر مشترک سیستم
+ */
+
+if (!defined('SITE_ROOT')) {
+    require_once 'config.php';
+}
+
+// چک کردن ورود کاربر
+if (!isset($_SESSION['user_id'])) {
+    // صفحات عمومی که نیاز به ورود ندارند
+    $publicPages = ['sign.php', 'index.php', '404.html'];
+    $currentPage = basename($_SERVER['PHP_SELF']);
+    
+    if (!in_array($currentPage, $publicPages)) {
+        redirect(SITE_URL . '/sign.php');
+    }
+}
+
+// دریافت اطلاعات کاربر
+$currentUser = null;
+if (isset($_SESSION['user_id'])) {
+    $currentUser = db()->selectOne(
+        "SELECT * FROM users WHERE id = :id",
+        [':id' => $_SESSION['user_id']]
+    );
+}
+
+// شمارش پیام‌های خوانده نشده
+$unreadMessages = 0;
+if ($currentUser) {
+    $unreadMessages = db()->count(
+        'messages',
+        'receiver_id = :user_id AND is_read = 0',
+        [':user_id' => $currentUser['id']]
+    );
+}
+
+// شمارش اعلان‌های خوانده نشده
+$unreadNotifications = 0;
+if ($currentUser) {
+    $notificationsTable = "SELECT COUNT(*) as count FROM (
+        SELECT id FROM reminders WHERE user_id = :user_id AND remind_date <= CURDATE() AND is_sent = 0
+        UNION
+        SELECT id FROM calendar_events WHERE user_id = :user_id AND start_date = CURDATE() AND reminder_minutes > 0
+    ) as notifications";
+    $result = db()->selectOne($notificationsTable, [':user_id' => $currentUser['id']]);
+    $unreadNotifications = $result ? (int)$result['count'] : 0;
+}
+?>
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="سیستم یکپارچه مدیریت سازمان">
+    <title><?php echo isset($pageTitle) ? $pageTitle . ' - ' : ''; ?><?php echo SITE_TITLE; ?></title>
+    
+    <style>
+        :root {
+            --primary-color: #667eea;
+            --secondary-color: #764ba2;
+            --success-color: #4caf50;
+            --danger-color: #f44336;
+            --warning-color: #ff9800;
+            --info-color: #2196f3;
+            --dark-color: #2c3e50;
+            --light-color: #f5f7fa;
+            --border-color: #e0e0e0;
+            --text-primary: #333;
+            --text-secondary: #666;
+            --shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Tahoma, 'Iranian Sans', 'Vazir', Arial, sans-serif;
+            background: var(--light-color);
+            color: var(--text-primary);
+            direction: rtl;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Header Styles */
+        .main-header {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: white;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+        
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 30px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 24px;
+            font-weight: bold;
+            text-decoration: none;
+            color: white;
+            transition: transform 0.3s;
+        }
+        
+        .logo:hover {
+            transform: scale(1.05);
+        }
+        
+        .logo-icon {
+            font-size: 32px;
+        }
+        
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        
+        .search-box {
+            position: relative;
+            display: none; /* فعال در نسخه‌های آینده */
+        }
+        
+        .search-box input {
+            padding: 8px 35px 8px 15px;
+            border: none;
+            border-radius: 20px;
+            width: 250px;
+            font-size: 14px;
+        }
+        
+        .search-box button {
+            position: absolute;
+            left: 5px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 18px;
+        }
+        
+        .header-icons {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        
+        .icon-btn {
+            position: relative;
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+        
+        .icon-btn:hover {
+            background: rgba(255,255,255,0.3);
+            transform: scale(1.1);
+        }
+        
+        .icon-btn .badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: var(--danger-color);
+            color: white;
+            border-radius: 10px;
+            padding: 2px 6px;
+            font-size: 11px;
+            font-weight: bold;
+            min-width: 18px;
+            text-align: center;
+        }
+        
+        .user-menu {
+            position: relative;
+        }
+        
+        .user-btn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .user-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        .user-avatar {
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            background: white;
+            color: var(--primary-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .user-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            min-width: 200px;
+            margin-top: 10px;
+            display: none;
+            z-index: 1001;
+        }
+        
+        .user-menu:hover .user-dropdown,
+        .user-dropdown:hover {
+            display: block;
+        }
+        
+        .user-dropdown a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 15px;
+            color: var(--text-primary);
+            text-decoration: none;
+            border-bottom: 1px solid var(--border-color);
+            transition: background 0.2s;
+        }
+        
+        .user-dropdown a:hover {
+            background: var(--light-color);
+        }
+        
+        .user-dropdown a:last-child {
+            border-bottom: none;
+            color: var(--danger-color);
+        }
+        
+        /* Navigation Menu */
+        .main-nav {
+            background: rgba(255,255,255,0.1);
+            border-top: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .nav-menu {
+            display: flex;
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            overflow-x: auto;
+            scrollbar-width: thin;
+        }
+        
+        .nav-menu::-webkit-scrollbar {
+            height: 4px;
+        }
+        
+        .nav-menu::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.3);
+            border-radius: 4px;
+        }
+        
+        .nav-item {
+            position: relative;
+        }
+        
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            color: white;
+            text-decoration: none;
+            white-space: nowrap;
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+        
+        .nav-link:hover,
+        .nav-link.active {
+            background: rgba(255,255,255,0.1);
+            border-bottom-color: white;
+        }
+        
+        .nav-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            min-width: 200px;
+            display: none;
+            z-index: 1001;
+        }
+        
+        .nav-item:hover .nav-dropdown {
+            display: block;
+        }
+        
+        .nav-dropdown a {
+            display: block;
+            padding: 10px 15px;
+            color: var(--text-primary);
+            text-decoration: none;
+            border-bottom: 1px solid var(--border-color);
+            transition: background 0.2s;
+        }
+        
+        .nav-dropdown a:hover {
+            background: var(--light-color);
+        }
+        
+        .nav-dropdown a:last-child {
+            border-bottom: none;
+        }
+        
+        /* Mobile Menu Toggle */
+        .mobile-menu-toggle {
+            display: none;
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 24px;
+        }
+        
+        /* Content Area */
+        .main-content {
+            flex: 1;
+            padding: 20px;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header-top {
+                padding: 10px 15px;
+            }
+            
+            .logo {
+                font-size: 18px;
+            }
+            
+            .search-box {
+                display: none !important;
+            }
+            
+            .mobile-menu-toggle {
+                display: block;
+            }
+            
+            .main-nav {
+                display: none;
+                position: absolute;
+                top: 100%;
+                right: 0;
+                left: 0;
+                background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            }
+            
+            .main-nav.active {
+                display: block;
+            }
+            
+            .nav-menu {
+                flex-direction: column;
+            }
+            
+            .nav-link {
+                border-bottom: 1px solid rgba(255,255,255,0.2);
+            }
+            
+            .nav-dropdown {
+                position: static;
+                box-shadow: none;
+                background: rgba(0,0,0,0.1);
+            }
+        }
+    </style>
+</head>
+<body>
+    <?php if ($currentUser): ?>
+    <header class="main-header">
+        <div class="header-top">
+            <a href="<?php echo SITE_URL; ?>/dashboard.php" class="logo">
+                <span class="logo-icon">🏢</span>
+                <span>eSmartis</span>
+            </a>
+            
+            <div class="header-right">
+                <div class="header-icons">
+                    <a href="<?php echo SITE_URL; ?>/messenger.php" class="icon-btn" title="پیام‌ها">
+                        💬
+                        <?php if ($unreadMessages > 0): ?>
+                            <span class="badge"><?php echo en2fa($unreadMessages); ?></span>
+                        <?php endif; ?>
+                    </a>
+                    
+                    <button class="icon-btn" title="اعلان‌ها" onclick="toggleNotifications()">
+                        🔔
+                        <?php if ($unreadNotifications > 0): ?>
+                            <span class="badge"><?php echo en2fa($unreadNotifications); ?></span>
+                        <?php endif; ?>
+                    </button>
+                </div>
+                
+                <div class="user-menu">
+                    <button class="user-btn">
+                        <div class="user-avatar">
+                            <?php echo mb_substr($currentUser['fullname'], 0, 1); ?>
+                        </div>
+                        <span><?php echo h($currentUser['fullname']); ?></span>
+                        <span>▼</span>
+                    </button>
+                    
+                    <div class="user-dropdown">
+                        <a href="<?php echo SITE_URL; ?>/profile.php">
+                            👤 پروفایل من
+                        </a>
+                        <a href="<?php echo SITE_URL; ?>/settings.php">
+                            ⚙️ تنظیمات
+                        </a>
+                        <?php if ($currentUser['is_admin']): ?>
+                            <a href="<?php echo SITE_URL; ?>/admin.php">
+                                🔧 پنل مدیریت
+                            </a>
+                        <?php endif; ?>
+                        <a href="<?php echo SITE_URL; ?>/logout.php">
+                            🚪 خروج
+                        </a>
+                    </div>
+                </div>
+                
+                <button class="mobile-menu-toggle" onclick="toggleMobileMenu()">
+                    ☰
+                </button>
+            </div>
+        </div>
+        
+        <nav class="main-nav" id="mainNav">
+            <ul class="nav-menu">
+                <li class="nav-item">
+                    <a href="<?php echo SITE_URL; ?>/dashboard.php" class="nav-link">
+                        🏠 داشبورد
+                    </a>
+                </li>
+                
+                <?php if (check_permission('contacts', PERMISSION_READ)): ?>
+                <li class="nav-item">
+                    <a href="<?php echo SITE_URL; ?>/contacts.php" class="nav-link">
+                        📇 مخاطبین
+                    </a>
+                </li>
+                <?php endif; ?>
+                
+                <?php if (check_permission('financial', PERMISSION_READ)): ?>
+                <li class="nav-item">
+                    <a href="#" class="nav-link">
+                        💰 مالی ▼
+                    </a>
+                    <div class="nav-dropdown">
+                        <a href="<?php echo SITE_URL; ?>/financial.php">داشبورد مالی</a>
+                        <a href="<?php echo SITE_URL; ?>/accounts.php">حساب‌ها</a>
+                        <a href="<?php echo SITE_URL; ?>/transactions.php">تراکنش‌ها</a>
+                        <a href="<?php echo SITE_URL; ?>/budgets.php">بودجه</a>
+                    </div>
+                </li>
+                <?php endif; ?>
+                
+                <?php if (check_permission('projects', PERMISSION_READ)): ?>
+                <li class="nav-item">
+                    <a href="<?php echo SITE_URL; ?>/projects.php" class="nav-link">
+                        📊 پروژه‌ها
+                    </a>
+                </li>
+                <?php endif; ?>
+                
+                <?php if (check_permission('warehouse', PERMISSION_READ)): ?>
+                <li class="nav-item">
+                    <a href="<?php echo SITE_URL; ?>/warehouse.php" class="nav-link">
+                        📦 انبار
+                    </a>
+                </li>
+                <?php endif; ?>
+                
+                <?php if (check_permission('hr', PERMISSION_READ)): ?>
+                <li class="nav-item">
+                    <a href="<?php echo SITE_URL; ?>/hr.php" class="nav-link">
+                        👔 منابع انسانی
+                    </a>
+                </li>
+                <?php endif; ?>
+                
+                <li class="nav-item">
+                    <a href="<?php echo SITE_URL; ?>/calendar.php" class="nav-link">
+                        📅 تقویم
+                    </a>
+                </li>
+                
+                <li class="nav-item">
+                    <a href="<?php echo SITE_URL; ?>/meetings.php" class="nav-link">
+                        🤝 جلسات
+                    </a>
+                </li>
+                
+                <li class="nav-item">
+                    <a href="<?php echo SITE_URL; ?>/messenger.php" class="nav-link">
+                        💬 پیام‌رسان
+                    </a>
+                </li>
+                
+                <li class="nav-item">
+                    <a href="<?php echo SITE_URL; ?>/notes.php" class="nav-link">
+                        📝 یادداشت
+                    </a>
+                </li>
+            </ul>
+        </nav>
+    </header>
+    <?php endif; ?>
+    
+    <main class="main-content">
+    
+    <script>
+        function toggleMobileMenu() {
+            const nav = document.getElementById('mainNav');
+            nav.classList.toggle('active');
+        }
+        
+        function toggleNotifications() {
+            alert('سیستم اعلان‌ها در نسخه‌های آینده فعال خواهد شد');
+        }
+    </script>
